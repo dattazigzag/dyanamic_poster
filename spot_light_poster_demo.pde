@@ -1,6 +1,6 @@
 // Text settings
 PFont font;
-int fontSize = 72;
+int fontSize = 102;
 String displayText = "We are\nhiring";
 
 // Spotlight settings
@@ -26,11 +26,15 @@ float danceFactor = 3;         // Creates the dancing effect at center
 String animationState = "spiral-in"; // Can be "spiral-in" or "dance"
 float animationProgress = 0;   // 0 to 1 for spiral-in, continuous for dance
 
+// Position smoothing variables
+float prevSpotX, prevSpotY, prevSpot2X, prevSpot2Y;
+float transitionSpeed = 0.15;  // Lower = smoother but slower transitions
+
 void setup() {
   size(400, 400);
 
-  // Initialize font
-  font = createFont("Arial", fontSize); // Changed to createFont to avoid dependency on .vlw files
+  // Initialize font - keeping the original font name
+  font = createFont("AeonikPro-Bold", fontSize);
   textFont(font, fontSize);
   textAlign(CENTER, CENTER);
 
@@ -39,7 +43,11 @@ void setup() {
   imageMode(CENTER);
   noStroke();
 
-  // Create spotlights
+  // Initialize position variables
+  prevSpotX = prevSpot2X = width/2;
+  prevSpotY = prevSpot2Y = height/2;
+
+  // Create buffers
   createSpotlightBuffers();
 
   // Display instructions
@@ -50,22 +58,18 @@ void setup() {
   println("a     : Toggle auto movement");
   println("r     : Reset animation");
   println("s     : Switch animation state");
-  println("t     : Change text");
+  println("f / F : Adjust animation smoothness");
 }
 
 void draw() {
   // Black background
   background(0);
 
-  // Draw the text
-  fill(textColor);
-  text(displayText, width/2, height/2);
-
-  // Calculate spotlight positions
-  float spotX = width/2;  // Default initialization
-  float spotY = height/2;
-  float spot2X = width/2;
-  float spot2Y = height/2;
+  // Calculate target spotlight positions
+  float targetSpotX = width/2;
+  float targetSpotY = height/2;
+  float targetSpot2X = width/2;
+  float targetSpot2Y = height/2;
 
   if (autoMove) {
     // Complex auto movement pattern
@@ -75,12 +79,12 @@ void draw() {
       float spiralAngle = TWO_PI * animationProgress / spiralTightness;
 
       // First spotlight spirals in from top-left
-      spotX = width/2 + cos(spiralAngle) * spiralRadius;
-      spotY = height/2 + sin(spiralAngle) * spiralRadius;
+      targetSpotX = width/2 + cos(spiralAngle) * spiralRadius;
+      targetSpotY = height/2 + sin(spiralAngle) * spiralRadius;
 
       // Second spotlight spirals in from opposite corner (bottom-right)
-      spot2X = width/2 + cos(spiralAngle + PI) * spiralRadius;
-      spot2Y = height/2 + sin(spiralAngle + PI) * spiralRadius;
+      targetSpot2X = width/2 + cos(spiralAngle + PI) * spiralRadius;
+      targetSpot2Y = height/2 + sin(spiralAngle + PI) * spiralRadius;
 
       // Advance the animation
       animationProgress += 0.005;
@@ -98,16 +102,16 @@ void draw() {
       float baseY = height/2 + sin(autoAngle) * centerDanceRadius;
 
       // Add secondary motion for more interesting orbit
-      float secondaryX = cos(autoAngle * danceFactor) * (centerDanceRadius/2);
-      float secondaryY = sin(autoAngle * danceFactor) * (centerDanceRadius/2);
+      float secondaryX = cos(autoAngle * danceFactor) * (centerDanceRadius/3);
+      float secondaryY = sin(autoAngle * danceFactor) * (centerDanceRadius/3);
 
       // Combine motions for first spotlight
-      spotX = baseX + secondaryX;
-      spotY = baseY + secondaryY;
+      targetSpotX = baseX + secondaryX;
+      targetSpotY = baseY + secondaryY;
 
       // Second spotlight mirror moves
-      spot2X = width - spotX;
-      spot2Y = height - spotY;
+      targetSpot2X = width - targetSpotX;
+      targetSpot2Y = height - targetSpotY;
 
       // Advance the animation
       autoAngle += 0.02;
@@ -120,22 +124,39 @@ void draw() {
     }
   } else {
     // Mouse-controlled movement
-    spotX = mouseX;
-    spotY = mouseY;
-    spot2X = width - mouseX;
-    spot2Y = height - mouseY;
+    targetSpotX = mouseX;
+    targetSpotY = mouseY;
+    targetSpot2X = width - mouseX;
+    targetSpot2Y = height - mouseY;
+
+    // Make mouse movement respond faster
+    transitionSpeed = 0.4;
   }
 
-  // Draw the blurred, translucent circles
-  tint(255, spotlightAlpha);
-  image(spotlightOneBuffer, spotX, spotY);
-  image(spotlightTwoBuffer, spot2X, spot2Y);
+  // Apply smooth transitions to the spotlight positions
+  prevSpotX = lerp(prevSpotX, targetSpotX, transitionSpeed);
+  prevSpotY = lerp(prevSpotY, targetSpotY, transitionSpeed);
+  prevSpot2X = lerp(prevSpot2X, targetSpot2X, transitionSpeed);
+  prevSpot2Y = lerp(prevSpot2Y, targetSpot2Y, transitionSpeed);
 
-  // Display info in corner (uncomment if needed for debugging)
-  // fill(255);
-  // textSize(12);
-  // text("FPS: " + int(frameRate) + " | Blur: " + blurAmount + " | Size: " + spotlightSize, 10, 15);
-  // textSize(fontSize); // Reset text size
+  // PART 1: Draw very dim text in background - this is visible in dark areas
+  fill(textColor, 20);
+  text(displayText, width/2, height/2);
+
+  // PART 2: Draw spotlights in ADD mode
+  blendMode(ADD);
+
+  // Fixed opacity here - key to stability
+  tint(255, spotlightAlpha);
+  image(spotlightOneBuffer, prevSpotX, prevSpotY);
+  image(spotlightTwoBuffer, prevSpot2X, prevSpot2Y);
+
+  // PART 3: Draw final text layer in ADD mode - this gets bright in lit areas
+  fill(textColor, 60);
+  text(displayText, width/2, height/2);
+
+  // Reset blend mode
+  blendMode(BLEND);
 }
 
 void createSpotlightBuffers() {
@@ -149,20 +170,39 @@ void createSpotlightBuffers() {
   // Draw first spotlight
   spotlightOneBuffer.beginDraw();
   spotlightOneBuffer.clear();
+  spotlightOneBuffer.background(0, 0); // Transparent background
   spotlightOneBuffer.ellipseMode(CENTER);
   spotlightOneBuffer.noStroke();
-  spotlightOneBuffer.fill(spotlightOneColor);
-  spotlightOneBuffer.ellipse(bufferSize/2, bufferSize/2, spotlightSize, spotlightSize);
+
+  // Draw multiple circles with decreasing opacity for a softer gradient
+  int steps = 5;
+  for (int i = 0; i < steps; i++) {
+    float size = spotlightSize * (1 - (float)i/steps);
+    int alpha = 255 - (i * 40);
+    spotlightOneBuffer.fill(red(spotlightOneColor), green(spotlightOneColor), blue(spotlightOneColor), alpha);
+    spotlightOneBuffer.ellipse(bufferSize/2, bufferSize/2, size, size);
+  }
+
+  // Apply strong blur for extra softness
   spotlightOneBuffer.filter(BLUR, blurAmount);
   spotlightOneBuffer.endDraw();
 
   // Draw second spotlight
   spotlightTwoBuffer.beginDraw();
   spotlightTwoBuffer.clear();
+  spotlightTwoBuffer.background(0, 0); // Transparent background
   spotlightTwoBuffer.ellipseMode(CENTER);
   spotlightTwoBuffer.noStroke();
-  spotlightTwoBuffer.fill(spotlightTwoColor);
-  spotlightTwoBuffer.ellipse(bufferSize/2, bufferSize/2, spotlightSize, spotlightSize);
+
+  // Draw multiple circles with decreasing opacity for a softer gradient
+  for (int i = 0; i < steps; i++) {
+    float size = spotlightSize * (1 - (float)i/steps);
+    int alpha = 255 - (i * 40);
+    spotlightTwoBuffer.fill(red(spotlightTwoColor), green(spotlightTwoColor), blue(spotlightTwoColor), alpha);
+    spotlightTwoBuffer.ellipse(bufferSize/2, bufferSize/2, size, size);
+  }
+
+  // Apply strong blur for extra softness
   spotlightTwoBuffer.filter(BLUR, blurAmount);
   spotlightTwoBuffer.endDraw();
 }
@@ -196,16 +236,43 @@ void keyPressed() {
     spotlightAlpha = constrain(spotlightAlpha - 10, 10, 255);
   }
 
+  // Transition speed adjustment
+  else if (key == 'f') {
+    transitionSpeed = constrain(transitionSpeed - 0.02, 0.01, 1.0);
+    println("Transition smoothness: " + nf(1-transitionSpeed, 0, 2) + " (higher = smoother)");
+  } else if (key == 'F') {
+    transitionSpeed = constrain(transitionSpeed + 0.02, 0.01, 1.0);
+    println("Transition smoothness: " + nf(1-transitionSpeed, 0, 2) + " (higher = smoother)");
+  }
+
   // Toggle auto movement
   else if (key == 'a' || key == 'A') {
     autoMove = !autoMove;
+    // When switching to auto mode, use smoother transitions
+    if (autoMove) transitionSpeed = 0.15;
   }
 
-  // Change text
-  //else if (key == 't' || key == 'T') {
-  //  String[] texts = {"We are\nhiring", "Join\nour team", "Creative\ndesign", "Hello\nworld"};
-  //  displayText = texts[int(random(texts.length))];
-  //}
+  // Reset animation
+  else if (key == 'r' || key == 'R') {
+    animationState = "spiral-in";
+    animationProgress = 0;
+    autoAngle = 0;
+
+    // Reset positions to avoid jumps
+    prevSpotX = prevSpot2X = width/2;
+    prevSpotY = prevSpot2Y = height/2;
+  }
+
+  // Switch animation state
+  else if (key == 's' || key == 'S') {
+    if (animationState == "spiral-in") {
+      animationState = "dance";
+      animationProgress = 0;
+    } else {
+      animationState = "spiral-in";
+      animationProgress = 0;
+    }
+  }
 
   // Recreate buffers if needed
   if (needsUpdate) {
